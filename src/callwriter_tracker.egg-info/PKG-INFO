@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: callwriter-tracker
+Version: 0.1.0
+Summary: Read-only near-expiry OTM call-writing tracker for Upstox market data
+Requires-Python: >=3.11
+Requires-Dist: httpx>=0.27
+Requires-Dist: pydantic-settings>=2.2
+Requires-Dist: fastapi>=0.115
+Requires-Dist: uvicorn[standard]>=0.30

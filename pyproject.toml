@@ -1,0 +1,14 @@
+[project]
+name = "callwriter-tracker"
+version = "0.1.0"
+description = "Read-only near-expiry OTM call-writing tracker for Upstox market data"
+requires-python = ">=3.11"
+dependencies = ["httpx>=0.27", "pydantic-settings>=2.2", "fastapi>=0.115", "uvicorn[standard]>=0.30", "upstox-python-sdk>=2.30,<3"]
+
+[project.scripts]
+callwriter = "callwriter.cli:main"
+callwriter-web = "callwriter.web:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
