@@ -90,20 +90,21 @@ def _tracked_stream_instruments() -> dict[str, str]:
         if (item.get("quote") or {}).get("instrument_key")
     }
 
-def _effective_expense_per_lot(quote: dict, entry_spot: float | None = None) -> float:
-    if settings.callwriter_margin_per_lot > 0:
-        return float(settings.callwriter_margin_per_lot)
-    spot = float(entry_spot or quote.get("spot") or 0)
-    lot_size = max(1, int(quote.get("lot_size") or 1))
-    return spot * lot_size
+def _effective_expense_per_lot() -> float:
+    """Return the user's assumed margin; never confuse notional with margin."""
+    if settings.callwriter_margin_per_lot <= 0:
+        raise HTTPException(
+            400,
+            "Configure CALLWRITER_MARGIN_PER_LOT before tracking a call. "
+            "This read-only app does not calculate live broker margin.",
+        )
+    return float(settings.callwriter_margin_per_lot)
 
 def _tracked_effective_expense(item: dict) -> float:
     stored = item.get("effective_expense")
     if stored is not None:
         return float(stored)
-    quote = item.get("quote") or {}
-    lots = max(1, int(item.get("lots") or 1))
-    return _effective_expense_per_lot(quote, item.get("entry_spot")) * lots
+    return 0.0
 
 def _demo_quotes(symbol: str) -> list[OptionQuote]:
     expiry = date.today()
@@ -456,7 +457,7 @@ def refresh_tracked():
 def add_tracked(req: TrackRequest):
     item = dict(req.candidate)
     quote = item.get("quote") or {}
-    effective_expense = _effective_expense_per_lot(quote, req.entry_spot) * req.lots
+    effective_expense = _effective_expense_per_lot() * req.lots
     combined_expense = sum(_tracked_effective_expense(existing) for existing in tracked.values()) + effective_expense
     if combined_expense >= MAX_EFFECTIVE_EXPENSE:
         raise HTTPException(400, f"This would take total tracked effective expense to ₹{combined_expense:,.0f}; it must remain below ₹{MAX_EFFECTIVE_EXPENSE:,.0f}")
