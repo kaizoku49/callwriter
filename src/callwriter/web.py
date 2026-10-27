@@ -233,12 +233,6 @@ def _option_chain_summary(payload: dict, calls: list[OptionQuote]) -> dict:
 def _demo_analytics(symbol: str) -> dict:
     return {
         "mode": "demo", "symbol": symbol, "fetched_at": datetime.now(timezone.utc).isoformat(),
-        "market_status": {"data": {"status": "demo"}, "error": None},
-        "holiday": {"data": None, "error": "Demo mode"},
-        "fii": {"data": None, "error": "Demo mode"}, "dii": {"data": None, "error": "Demo mode"},
-        "option_greeks": {"data": None, "error": "Demo mode"},
-        "oi": {"data": None, "error": "Demo mode"}, "change_oi": {"data": None, "error": "Demo mode"},
-        "max_pain": {"data": None, "error": "Demo mode"}, "pcr": {"data": None, "error": "Demo mode"},
         "option_chain": {"spot": 100.0, "pcr": 0.8, "total_call_oi": 1000, "total_put_oi": 800, "calls": [], "puts": []},
     }
 
@@ -249,7 +243,6 @@ def _analytics(req: AnalyticsRequest) -> dict:
     key = _underlying_key(req.symbol, req.underlying_key)
     if not key:
         raise HTTPException(400, f"No underlying key configured for {req.symbol}")
-    as_of = date.fromisoformat(req.date) if req.date else date.today()
     expiry = None
     expiry_error = None
     try:
@@ -260,18 +253,8 @@ def _analytics(req: AnalyticsRequest) -> dict:
     chain_calls: list[OptionQuote] = []
     if chain_payload["data"]:
         chain_calls = option_chain_calls(chain_payload["data"], req.symbol, _lot_sizes(client, key, expiry))
-    option_keys = [q.instrument_key for q in chain_calls[:50]]
     return {
-        "mode": "live", "symbol": req.symbol, "underlying_key": key, "expiry": expiry, "as_of": as_of.isoformat(), "fetched_at": datetime.now(timezone.utc).isoformat(),
-        "market_status": _safe_call("market status", lambda: client.market_status("NSE")),
-        "holiday": _safe_call("market holidays", lambda: client.market_holidays(as_of)),
-        "fii": _safe_call("FII", lambda: client.fii()),
-        "dii": _safe_call("DII", lambda: client.dii()),
-        "option_greeks": _safe_call("option Greeks", lambda: client.option_greeks(option_keys)) if option_keys else {"data": None, "error": "No option keys returned"},
-        "oi": _safe_call("open interest", lambda: client.open_interest(key, expiry, as_of)) if expiry else {"data": None, "error": expiry_error},
-        "change_oi": _safe_call("change in open interest", lambda: client.change_open_interest(key, expiry, as_of)) if expiry else {"data": None, "error": expiry_error},
-        "max_pain": _safe_call("max pain", lambda: client.max_pain(key, expiry, as_of)) if expiry else {"data": None, "error": expiry_error},
-        "pcr": _safe_call("PCR", lambda: client.put_call_ratio(key, expiry, as_of)) if expiry else {"data": None, "error": expiry_error},
+        "mode": "live", "symbol": req.symbol, "underlying_key": key, "expiry": expiry, "fetched_at": datetime.now(timezone.utc).isoformat(),
         "option_chain": _option_chain_summary(chain_payload["data"], chain_calls) if chain_payload["data"] else {"error": chain_payload["error"]},
     }
 
