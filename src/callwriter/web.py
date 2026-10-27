@@ -30,7 +30,6 @@ data_client = None
 stream_hub = None
 tracked: dict[str, dict] = {}
 runtime_underlying_keys: dict[str, str] = {}
-MAX_EFFECTIVE_EXPENSE = 1_000_000.0
 DEFAULT_UNDERLYING_KEYS = {
     "NIFTY": "NSE_INDEX|Nifty 50",
     "BANKNIFTY": "NSE_INDEX|Nifty Bank",
@@ -89,22 +88,6 @@ def _tracked_stream_instruments() -> dict[str, str]:
         for item_id, item in tracked.items()
         if (item.get("quote") or {}).get("instrument_key")
     }
-
-def _effective_expense_per_lot() -> float:
-    """Return the user's assumed margin; never confuse notional with margin."""
-    if settings.callwriter_margin_per_lot <= 0:
-        raise HTTPException(
-            400,
-            "Configure CALLWRITER_MARGIN_PER_LOT before tracking a call. "
-            "This read-only app does not calculate live broker margin.",
-        )
-    return float(settings.callwriter_margin_per_lot)
-
-def _tracked_effective_expense(item: dict) -> float:
-    stored = item.get("effective_expense")
-    if stored is not None:
-        return float(stored)
-    return 0.0
 
 def _demo_quotes(symbol: str) -> list[OptionQuote]:
     expiry = date.today()
@@ -313,7 +296,7 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "mode": "live" if _live() else "demo", "token_configured": _live(), "tracked_count": len(tracked), "max_effective_expense": MAX_EFFECTIVE_EXPENSE, "margin_per_lot": settings.callwriter_margin_per_lot}
+    return {"status": "ok", "mode": "live" if _live() else "demo", "token_configured": _live(), "tracked_count": len(tracked)}
 
 @app.get("/api/watchlist")
 def watchlist():
@@ -321,7 +304,7 @@ def watchlist():
 
 @app.get("/api/config")
 def public_config():
-    return {"max_effective_expense": MAX_EFFECTIVE_EXPENSE, "margin_per_lot": settings.callwriter_margin_per_lot, "read_only": True}
+    return {"read_only": True}
 
 @app.get("/api/sentiment")
 def sentiment():
@@ -457,14 +440,10 @@ def refresh_tracked():
 def add_tracked(req: TrackRequest):
     item = dict(req.candidate)
     quote = item.get("quote") or {}
-    effective_expense = _effective_expense_per_lot() * req.lots
-    combined_expense = sum(_tracked_effective_expense(existing) for existing in tracked.values()) + effective_expense
-    if combined_expense >= MAX_EFFECTIVE_EXPENSE:
-        raise HTTPException(400, f"This would take total tracked effective expense to ₹{combined_expense:,.0f}; it must remain below ₹{MAX_EFFECTIVE_EXPENSE:,.0f}")
-    item.update({"id": str(uuid.uuid4()), "entry_premium": req.entry_premium, "entry_spot": req.entry_spot, "lots": req.lots, "effective_expense": effective_expense, "status": "tracked"})
+    item.update({"id": str(uuid.uuid4()), "entry_premium": req.entry_premium, "entry_spot": req.entry_spot, "lots": req.lots, "status": "tracked"})
     tracked[item["id"]] = item
     save_tracked(item)
-    record_event("track", quote.get("underlying"), quote.get("instrument_key"), {"strike": quote.get("strike"), "entry_premium": req.entry_premium, "lots": req.lots, "effective_expense": effective_expense})
+    record_event("track", quote.get("underlying"), quote.get("instrument_key"), {"strike": quote.get("strike"), "entry_premium": req.entry_premium, "lots": req.lots})
     if stream_hub is not None:
         stream_hub.update_instruments(_tracked_stream_instruments())
     return item
@@ -496,7 +475,7 @@ def export_tracked():
     rows = []
     for item in tracked.values():
         quote = item.get("quote") or {}
-        rows.append({"id": item.get("id"), "symbol": quote.get("underlying"), "instrument_key": quote.get("instrument_key"), "strike": quote.get("strike"), "expiry": quote.get("expiry"), "lots": item.get("lots", 1), "effective_expense": item.get("effective_expense"), "entry_premium": item.get("entry_premium"), "current_premium": quote.get("ltp"), "entry_spot": item.get("entry_spot"), "status": item.get("status"), "alerts": "; ".join(item.get("alerts") or [])})
+        rows.append({"id": item.get("id"), "symbol": quote.get("underlying"), "instrument_key": quote.get("instrument_key"), "strike": quote.get("strike"), "expiry": quote.get("expiry"), "lots": item.get("lots", 1), "entry_premium": item.get("entry_premium"), "current_premium": quote.get("ltp"), "entry_spot": item.get("entry_spot"), "status": item.get("status"), "alerts": "; ".join(item.get("alerts") or [])})
     return _csv_response("callwriter-tracked.csv", rows)
 
 @app.get("/api/export/history.csv")
