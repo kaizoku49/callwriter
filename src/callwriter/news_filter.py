@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import re
 
 @dataclass(frozen=True)
 class NewsRisk:
@@ -26,6 +27,14 @@ _RESTRICT_KEYWORDS = {
     "fund raising", "fundraising", "promoter", "pledge", "block deal", "ipo",
 }
 
+def _matched_keywords(text: str, keywords: set[str]) -> tuple[str, ...]:
+    """Match complete words/phrases so `ban` does not match `bank`."""
+    return tuple(
+        keyword
+        for keyword in keywords
+        if re.search(rf"(?<!\w){re.escape(keyword)}(?!\w)", text)
+    )
+
 def _published_ms(item: dict) -> int:
     value = item.get("published_time", 0)
     return int(value or 0)
@@ -42,8 +51,8 @@ def evaluate_news_filter(news_by_symbol: dict[str, list[dict]], now: datetime | 
             published = _published_ms(item)
             age_hours = (now_ms - published) / 3_600_000 if published else float("inf")
             text = f"{item.get('heading', '')} {item.get('summary', '')}".lower()
-            block_reasons = tuple(word for word in _BLOCK_KEYWORDS if word in text)
-            restrict_reasons = tuple(word for word in _RESTRICT_KEYWORDS if word in text)
+            block_reasons = _matched_keywords(text, _BLOCK_KEYWORDS)
+            restrict_reasons = _matched_keywords(text, _RESTRICT_KEYWORDS)
             if block_reasons and age_hours <= block_hours:
                 blocked.add(symbol)
                 risks.append(NewsRisk(symbol, item.get("heading", ""), published, "block", block_reasons))
