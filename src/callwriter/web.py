@@ -22,7 +22,7 @@ from .storage import delete_tracked as delete_tracked_record
 from .storage import history, init_db, load_tracked, record_event, save_tracked
 from .upstox import UpstoxMarketData
 from .upstox_parser import option_chain_calls
-from .watchlist import WATCHLIST
+from .watchlist import INDEX_WATCHLIST, STOCK_WATCHLIST, WATCHLIST
 
 app = FastAPI(title="CallWriter Tracker", docs_url="/api/docs")
 settings = Settings()
@@ -33,6 +33,7 @@ runtime_underlying_keys: dict[str, str] = {}
 MAX_EFFECTIVE_EXPENSE = 1_000_000.0
 DEFAULT_UNDERLYING_KEYS = {
     "NIFTY": "NSE_INDEX|Nifty 50",
+    "BANKNIFTY": "NSE_INDEX|Nifty Bank",
     "HDFCBANK": "NSE_EQ|INE040A01034",
     "ICICIBANK": "NSE_EQ|INE090A01021",
     "RELIANCE": "NSE_EQ|INE002A01018",
@@ -157,9 +158,9 @@ def _client() -> UpstoxMarketData:
 def _resolve_expiry(client: UpstoxMarketData, symbol: str, key: str, supplied: str | None = None) -> str:
     if supplied:
         return supplied
-    expiry_kind = "current_week" if symbol == "NIFTY" else "current_month"
+    expiry_kind = "current_week" if symbol in INDEX_WATCHLIST else "current_month"
     contracts = client.option_contracts(key).get("data", [])
-    weekly = symbol == "NIFTY"
+    weekly = symbol in INDEX_WATCHLIST
     active = sorted({
         item.get("expiry")
         for item in contracts
@@ -268,7 +269,7 @@ def _live_context() -> tuple[dict, object]:
     try:
         nifty_closes = data_client.historical_closes(nifty_key, start, end)
         stock_closes = {}
-        for symbol in WATCHLIST[1:]:
+        for symbol in STOCK_WATCHLIST:
             key = mapping.get(symbol)
             if key:
                 stock_closes[symbol] = data_client.historical_closes(key, start, end)

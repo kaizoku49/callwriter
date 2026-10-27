@@ -10,11 +10,11 @@ def expiry_date(instrument: dict) -> date:
 def select_expiry_instruments(instruments: list[dict], symbol: str, as_of: date | None = None) -> list[dict]:
     """Return the nearest eligible expiry chain for a watchlist symbol.
 
-    NIFTY uses weekly contracts. Stock options use monthly contracts, represented
+    NIFTY and BANKNIFTY use weekly contracts. Stock options use monthly contracts, represented
     by weekly=False in the Upstox instrument master.
     """
     as_of = as_of or date.today()
-    wanted_weekly = symbol == "NIFTY"
+    wanted_weekly = symbol in {"NIFTY", "BANKNIFTY"}
     matches = [
         item for item in instruments
         if item.get("segment") == "NSE_FO"

@@ -4,7 +4,7 @@ Read-only tracker for screening near-expiry, out-of-the-money NSE call options u
 
 ## Design
 
-- NIFTY is screened against the nearest future contract with `weekly=true`.
+- NIFTY and BANKNIFTY are screened against the nearest future contract with `weekly=true`.
 - Stock options are screened against the nearest future contract with `weekly=false` (monthly expiry).
 - The instrument master is the source of truth for expiry, instrument key and lot size; expiry symbols are never constructed manually.
 - Candidate calls first use the Varsity method: calculate the mean and standard deviation of log returns, project the upper price range until expiry, and require the strike to be at or above that upper range. The default is one standard deviation; the nearest available strike is preferred, subject to premium and liquidity filters.
@@ -24,7 +24,7 @@ Read-only tracker for screening near-expiry, out-of-the-money NSE call options u
 - Fundamental strength is deliberately a configuration/input concern, not inferred from option prices. Add an approved watchlist upstream before screening stock options.
 - Fundamentals, expired instruments, news, and all trading/order/account APIs are intentionally excluded. The app does not fetch financial fundamentals.
 
-The initial hard-coded universe is `NIFTY` plus the current top-ten Nifty 50 constituents by weightage: `HDFCBANK`, `ICICIBANK`, `RELIANCE`, `BHARTIARTL`, `LT`, `INFY`, `SBIN`, `AXISBANK`, `KOTAKBANK`, and `ITC`. See `src/callwriter/watchlist.py`. This is not a current investment recommendation; the tracker should still validate that each symbol has an active, liquid option contract in the Upstox instrument master.
+The initial hard-coded universe is `NIFTY`, `BANKNIFTY`, plus the current top-ten Nifty 50 constituents by weightage: `HDFCBANK`, `ICICIBANK`, `RELIANCE`, `BHARTIARTL`, `LT`, `INFY`, `SBIN`, `AXISBANK`, `KOTAKBANK`, and `ITC`. See `src/callwriter/watchlist.py`. This is not a current investment recommendation; the tracker should still validate that each symbol has an active, liquid option contract in the Upstox instrument master.
 
 ## Safety
 
@@ -45,7 +45,7 @@ callwriter --underlying-key 'NSE_INDEX|...' --expiry 2026-10-29
 callwriter-web
 ```
 
-Open `http://127.0.0.1:8000`. Without `UPSTOX_ACCESS_TOKEN`, the page runs in clearly labelled demo mode. For project-level configuration, copy `.env.example` to `.env` and set `UPSTOX_ACCESS_TOKEN`; `.env` is ignored by Git and loaded when the dashboard starts. NIFTY and the ten configured stocks use built-in Upstox instrument mappings; `CALLWRITER_UNDERLYING_KEYS` can override them in `.env`. The combined effective-expense cap is fixed at ₹10 lakh, while `CALLWRITER_MARGIN_PER_LOT` optionally supplies the assumed expense per lot. “Track” creates a persistent hypothetical record only. It is not an Upstox position and cannot place trades.
+Open `http://127.0.0.1:8000`. Without `UPSTOX_ACCESS_TOKEN`, the page runs in clearly labelled demo mode. For project-level configuration, copy `.env.example` to `.env` and set `UPSTOX_ACCESS_TOKEN`; `.env` is ignored by Git and loaded when the dashboard starts. NIFTY, BANKNIFTY and the ten configured stocks use built-in Upstox instrument mappings; `CALLWRITER_UNDERLYING_KEYS` can override them in `.env`. The combined effective-expense cap is fixed at ₹10 lakh, while `CALLWRITER_MARGIN_PER_LOT` optionally supplies the assumed expense per lot. “Track” creates a persistent hypothetical record only. It is not an Upstox position and cannot place trades.
 
 Upstox documents instrument keys, expiries and lot sizes in its instrument master; use those values rather than constructing symbols manually.
 
