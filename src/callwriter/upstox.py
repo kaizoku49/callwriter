@@ -30,18 +30,6 @@ class UpstoxMarketData:
         response.raise_for_status()
         return response.json()
 
-    def news(self, instrument_keys: list[str], page_size: int = 100) -> dict:
-        if not instrument_keys or len(instrument_keys) > 30:
-            raise ValueError("Upstox news supports 1 to 30 instrument keys per request")
-        response = self.client.get("/news", params={"category": "instrument_keys", "instrument_keys": ",".join(instrument_keys), "page_size": page_size})
-        response.raise_for_status()
-        return response.json()
-
-    def corporate_actions(self, isin: str) -> dict:
-        response = self.client.get(f"/fundamentals/{isin}/corporate-actions")
-        response.raise_for_status()
-        return response.json()
-
     def option_greeks(self, instrument_keys: list[str]) -> dict:
         """Return live option Greeks for up to 50 option instrument keys."""
         if not instrument_keys or len(instrument_keys) > 50:

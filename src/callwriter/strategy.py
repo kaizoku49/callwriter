@@ -3,7 +3,6 @@ from datetime import date
 from .greeks import call_delta, probability_below_strike, volatility_range
 from .models import Candidate, OptionQuote
 from .market_filter import MarketFilterDecision
-from .news_filter import NewsFilterDecision
 
 @dataclass(frozen=True)
 class StrategyConfig:
@@ -46,7 +45,7 @@ def _term_structure_ratio(quotes: list[OptionQuote], quote: OptionQuote) -> floa
     next_iv = min(next_quotes, key=lambda q: abs(q.strike - q.spot)).iv
     return current_iv / next_iv if next_iv else None
 
-def rank_calls(quotes: list[OptionQuote], historical_vol: float, as_of: date, daily_mean_log_return: float = 0.0, config: StrategyConfig = StrategyConfig(), market_filter: MarketFilterDecision | None = None, news_filter: NewsFilterDecision | None = None) -> list[Candidate]:
+def rank_calls(quotes: list[OptionQuote], historical_vol: float, as_of: date, daily_mean_log_return: float = 0.0, config: StrategyConfig = StrategyConfig(), market_filter: MarketFilterDecision | None = None) -> list[Candidate]:
     # The broad NIFTY trend/breadth market gate is informational only. Keep
     # the independent VIX safety filter because the tracker is intended to
     # flag sudden volatility risk without hiding every candidate in a weak
@@ -55,8 +54,6 @@ def rank_calls(quotes: list[OptionQuote], historical_vol: float, as_of: date, da
         return []
     results = []
     for q in quotes:
-        if news_filter and q.underlying in news_filter.blocked_symbols:
-            continue
         dte = (q.expiry - as_of).total_seconds() / 86400
         trading_dte = _weekdays_between(as_of, q.expiry) - (1 if as_of.weekday() < 5 else 0)
         if not (config.min_dte <= dte <= config.max_dte and q.strike > q.spot and q.oi >= config.min_oi and trading_dte > 0):
@@ -102,8 +99,6 @@ def rank_calls(quotes: list[OptionQuote], historical_vol: float, as_of: date, da
         warnings = []
         if market_filter and market_filter.vix_elevated:
             warnings.append("India VIX is elevated; sudden-move risk is higher")
-        if news_filter and q.underlying in news_filter.restricted_symbols:
-            warnings.append("recent material news restricts new risk")
         if stop_loss_breached:
             warnings.append("underlying is at or beyond the volatility stop-loss")
         if q.iv and q.iv > historical_vol * 1.5: warnings.append("IV much higher than historical volatility")

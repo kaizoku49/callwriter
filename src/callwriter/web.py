@@ -16,7 +16,6 @@ from .models import OptionQuote
 from .monitoring import monitor_short_call
 from .greeks import annualized_historical_vol, mean_log_return
 from .market_filter import evaluate_market_filter
-from .news_filter import evaluate_news_filter
 from .strategy import StrategyConfig, rank_calls
 from .streaming import MarketStreamHub
 from .storage import delete_tracked as delete_tracked_record
@@ -146,12 +145,6 @@ def _underlying_key(symbol: str, supplied: str | None) -> str | None:
     mapping = _mapping()
     return mapping.get(symbol)
 
-def _isin_for(symbol: str) -> str | None:
-    key = _mapping().get(symbol)
-    if not key or not key.startswith("NSE_EQ|"):
-        return None
-    return key.split("|", 1)[1]
-
 def _client() -> UpstoxMarketData:
     global data_client
     if data_client is None:
@@ -246,8 +239,6 @@ def _demo_analytics(symbol: str) -> dict:
         "option_greeks": {"data": None, "error": "Demo mode"},
         "oi": {"data": None, "error": "Demo mode"}, "change_oi": {"data": None, "error": "Demo mode"},
         "max_pain": {"data": None, "error": "Demo mode"}, "pcr": {"data": None, "error": "Demo mode"},
-        "news": {"data": None, "error": "Demo mode"}, "corporate_actions": {"data": None, "error": "Demo mode"},
-        "news_symbols": {},
         "option_chain": {"spot": 100.0, "pcr": 0.8, "total_call_oi": 1000, "total_put_oi": 800, "calls": [], "puts": []},
     }
 
@@ -270,11 +261,6 @@ def _analytics(req: AnalyticsRequest) -> dict:
     if chain_payload["data"]:
         chain_calls = option_chain_calls(chain_payload["data"], req.symbol, _lot_sizes(client, key, expiry))
     option_keys = [q.instrument_key for q in chain_calls[:50]]
-    news_payload = _safe_call("news", lambda: client.news([key]))
-    corporate = {"data": None, "error": "Not applicable to an index"}
-    isin = _isin_for(req.symbol)
-    if isin:
-        corporate = _safe_call("corporate actions", lambda: client.corporate_actions(isin))
     return {
         "mode": "live", "symbol": req.symbol, "underlying_key": key, "expiry": expiry, "as_of": as_of.isoformat(), "fetched_at": datetime.now(timezone.utc).isoformat(),
         "market_status": _safe_call("market status", lambda: client.market_status("NSE")),
@@ -286,19 +272,16 @@ def _analytics(req: AnalyticsRequest) -> dict:
         "change_oi": _safe_call("change in open interest", lambda: client.change_open_interest(key, expiry, as_of)) if expiry else {"data": None, "error": expiry_error},
         "max_pain": _safe_call("max pain", lambda: client.max_pain(key, expiry, as_of)) if expiry else {"data": None, "error": expiry_error},
         "pcr": _safe_call("PCR", lambda: client.put_call_ratio(key, expiry, as_of)) if expiry else {"data": None, "error": expiry_error},
-        "news": news_payload,
-        "news_symbols": {**{value: symbol for symbol, value in _mapping().items()}, key: req.symbol},
-        "corporate_actions": corporate,
         "option_chain": _option_chain_summary(chain_payload["data"], chain_calls) if chain_payload["data"] else {"error": chain_payload["error"]},
     }
 
-def _live_context() -> tuple[dict, object, object]:
+def _live_context() -> tuple[dict, object]:
     mapping = _mapping()
     end = date.today()
     start = end - timedelta(days=500)
     nifty_key = mapping.get("NIFTY")
     if not nifty_key:
-        return {}, None, None
+        return {}, None
     try:
         nifty_closes = data_client.historical_closes(nifty_key, start, end)
         stock_closes = {}
@@ -308,19 +291,9 @@ def _live_context() -> tuple[dict, object, object]:
                 stock_closes[symbol] = data_client.historical_closes(key, start, end)
         vix_closes = data_client.historical_closes("NSE_INDEX|India VIX", start, end)
         market = evaluate_market_filter(nifty_closes, stock_closes, vix_closes)
-        stock_keys = [mapping[s] for s in WATCHLIST[1:] if mapping.get(s)]
-        news = None
-        if stock_keys:
-            news_payload = data_client.news(stock_keys)
-            by_symbol = {}
-            reverse = {v: k for k, v in mapping.items()}
-            for key, items in (news_payload.get("data") or {}).items():
-                if key in reverse:
-                    by_symbol[reverse[key]] = items
-            news = evaluate_news_filter(by_symbol)
-        return {"nifty_closes": nifty_closes}, market, news
+        return {"nifty_closes": nifty_closes}, market
     except Exception:
-        return {}, None, None
+        return {}, None
 
 def _sentiment_label(market) -> str:
     if market is None:
@@ -340,12 +313,11 @@ def _scan(req: ScanRequest) -> tuple[list[OptionQuote], str, dict]:
         raise HTTPException(400, f"No underlying key configured for {req.symbol}")
     expiry = _resolve_expiry(client, req.symbol, key, req.expiry)
     quotes = option_chain_calls(client.option_chain(key, date.fromisoformat(expiry)), req.symbol, _lot_sizes(client, key, expiry))
-    context, market, news = _live_context()
+    context, market = _live_context()
     closes = client.historical_closes(key, date.today() - timedelta(days=500), date.today())
     context["historical_vol"] = annualized_historical_vol(closes) if len(closes) >= 3 else .20
     context["daily_mean_log_return"] = mean_log_return(closes) if len(closes) >= 2 else 0.0
     context["market_filter"] = market
-    context["news_filter"] = news
     context["expiry"] = expiry
     context["fetched_at"] = datetime.now(timezone.utc).isoformat()
     return quotes, "live", context
@@ -447,7 +419,7 @@ def scan(req: ScanRequest):
         result = {"mode": mode, "symbol": req.symbol, "candidates": [asdict(q) for q in quotes], "message": "Demo data only; configure UPSTOX_ACCESS_TOKEN for live ranking."}
         record_event("scan", req.symbol, details={"candidate_count": len(quotes), "mode": mode})
         return result
-    candidates = rank_calls(quotes, context["historical_vol"], date.today(), daily_mean_log_return=context["daily_mean_log_return"], market_filter=context.get("market_filter"), news_filter=context.get("news_filter"))
+    candidates = rank_calls(quotes, context["historical_vol"], date.today(), daily_mean_log_return=context["daily_mean_log_return"], market_filter=context.get("market_filter"))
     no_candidate_reasons: list[str] = []
     if not candidates:
         expiry = context.get("expiry")
@@ -458,12 +430,9 @@ def scan(req: ScanRequest):
         market_filter = context.get("market_filter")
         if market_filter and market_filter.vix_extreme:
             no_candidate_reasons.append("Extreme India VIX blocks new candidates for safety.")
-        news_filter = context.get("news_filter")
-        if news_filter and req.symbol in news_filter.blocked_symbols:
-            no_candidate_reasons.append("Recent material news blocks this symbol.")
         if not no_candidate_reasons:
             no_candidate_reasons.append("No calls passed the Varsity range, delta, IV/HV, liquidity, spread and premium filters.")
-    result = {"mode": mode, "symbol": req.symbol, "expiry": context.get("expiry"), "fetched_at": context.get("fetched_at"), "historical_vol": context["historical_vol"], "market_filter": asdict(context["market_filter"]) if context.get("market_filter") else None, "news_risks": [asdict(r) for r in (context.get("news_filter").risks if context.get("news_filter") else ())], "candidates": [asdict(c) for c in candidates], "no_candidate_reasons": no_candidate_reasons, "selection_rule": "Varsity upper-range strike plus delta, IV/HV, liquidity, independent VIX safety filter and news filter; NIFTY trend/breadth gate is informational only"}
+    result = {"mode": mode, "symbol": req.symbol, "expiry": context.get("expiry"), "fetched_at": context.get("fetched_at"), "historical_vol": context["historical_vol"], "market_filter": asdict(context["market_filter"]) if context.get("market_filter") else None, "candidates": [asdict(c) for c in candidates], "no_candidate_reasons": no_candidate_reasons, "selection_rule": "Varsity upper-range strike plus delta, IV/HV, liquidity and independent VIX safety filter; NIFTY trend/breadth gate is informational only"}
     record_event("scan", req.symbol, details={"candidate_count": len(candidates), "expiry": context.get("expiry"), "mode": mode})
     return result
 
